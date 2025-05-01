@@ -108,27 +108,34 @@ static inline int get_pixel_luminance(unsigned char r, unsigned char g, unsigned
 	return 0.299 * r + 0.587 * g + 0.114 * b;
 }
 
+static inline int get_pixel_gradient(const Image *img, int x, int y)
+{
+	int gx = 0;
+	int gy = 0;
+
+	for (int cy = -1; cy <= 1; cy++) {
+		if (in_range(0, y + cy, img->h - 1)) {
+			for (int cx = -1; cx <= 1; cx++) {
+				if (in_range(0, x + cx, img->w - 1)) {
+
+					const Pixel *pixel = &img->pixels[y + cy][x + cx];
+					int luminance = get_pixel_luminance(pixel->r, pixel->g, pixel->b);
+
+					gx += SOBEL_X[cy + 1][cx + 1] * luminance;
+					gy += SOBEL_Y[cy + 1][cx + 1] * luminance;
+				}
+			}
+		}
+	}
+
+	return gx * gx + gy * gy;
+}
+
 void calculate_gradient(Image *img)
 {
 	for (int y = 0; y < img->h; y++) {
 		for (int x = 0; x < img->w; x++) {
-
-			int gx = 0;
-			int gy = 0;
-
-			for (int cy = -1; cy <= 1; cy++) {
-				for (int cx = -1; cx <= 1; cx++) {
-					if (in_range(0, x + cx, img->w - 1) && in_range(0, y + cy, img->h - 1)) {
-						const Pixel pixel = img->pixels[y + cy][x + cx];
-						int luminance = get_pixel_luminance(pixel.r, pixel.g, pixel.b);
-
-						gx += SOBEL_X[cy + 1][cx + 1] * luminance;
-						gy += SOBEL_Y[cy + 1][cx + 1] * luminance;
-					}
-				}
-			}
-
-			img->pixels[y][x].gradient = gx * gx + gy * gy;
+			img->pixels[y][x].gradient = get_pixel_gradient(img, x, y);
 		}
 	}
 }
@@ -138,29 +145,10 @@ void calculate_gradient_near_curve(Image *img, CurvePoint *curve)
 	for (int y = 0; y < img->h; y++) {
 
 		int x = curve[y].relative_x;
-		for (int i = -1; i <= 1; i++) {
-			for (int j = -1; j <= 1; j++) {
-				int gx = 0;
-				int gy = 0;
 
-				int x0 = x + j;
-				int y0 = y + i;
-
-				for (int cy = -1; cy <= 1; cy++) {
-					for (int cx = -1; cx <= 1; cx++) {
-						if (in_range(0, x0 + cx, img->w - 1) && in_range(0, y0 + cy, img->h - 1)) {
-							const Pixel pixel = img->pixels[y0 + cy][x0 + cx];
-							int luminance = get_pixel_luminance(pixel.r, pixel.g, pixel.b);
-
-							gx += SOBEL_X[cy + 1][cx + 1] * luminance;
-							gy += SOBEL_Y[cy + 1][cx + 1] * luminance;
-						}
-					}
-				}
-
-				img->pixels[y][x].gradient = gx * gx + gy * gy;
-			}
-		}
+		img->pixels[y][x].gradient = get_pixel_gradient(img, x, y);
+		if (x - 1 >= 0) img->pixels[y][x - 1].gradient = get_pixel_gradient(img, x - 1, y);
+		if (x + 1 < img->w) img->pixels[y][x + 1].gradient = get_pixel_gradient(img, x + 1, y);
 	}
 }
 
@@ -290,12 +278,13 @@ CurvePoint **compile_vertical_curves(const SDL_Surface *sdl_image)
 	calculate_gradient(&img);
 
 	for (int x = 0; x < w; x++) {
+		// calculate_gradient(&img);
 		calculate_vertical_gradient_sum(&img);
 		curves[x] = find_min_vertical_curve(&img);
 		remove_vertical_curve_from_image(&img, curves[x]);
 		img.w--;
 		calculate_gradient_near_curve(&img, curves[x]);
-		if ((x + 1) % 10 == 0) printf("completed %d curves\n", x + 1);
+		if ((x + 1) % 50 == 0) printf("completed %d curves\n", x + 1);
 	}
 
 	free_image(&img);
@@ -420,17 +409,14 @@ void die(const char *msg)
 	exit(1);
 }
 
-int main(void)
+int main(int argc, char **argv)
 {
 	SDL_Init(0);
-	const char *img_name = "images/"
-			// "bird.jpg";
-			"surfer.jpg";
-			// "clocks.jpg";
-			// "tower.jpg";
-			// "van.jpg";
 
-	SDL_Surface *img = IMG_Load(img_name);
+	printf("%d\n", argc);
+	if (argc != 2) die("Please provide an image path\n");
+
+	SDL_Surface *img = IMG_Load(argv[1]);
 
 	if (!img) die("Image not found\n");
 
