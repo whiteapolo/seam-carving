@@ -118,8 +118,8 @@ static inline int get_pixel_gradient(const Image *img, int x, int y)
 			for (int cx = -1; cx <= 1; cx++) {
 				if (in_range(0, x + cx, img->w - 1)) {
 
-					const Pixel *pixel = &img->pixels[y + cy][x + cx];
-					int luminance = get_pixel_luminance(pixel->r, pixel->g, pixel->b);
+					Pixel pixel = img->pixels[y + cy][x + cx];
+					int luminance = get_pixel_luminance(pixel.r, pixel.g, pixel.b);
 
 					gx += SOBEL_X[cy + 1][cx + 1] * luminance;
 					gy += SOBEL_Y[cy + 1][cx + 1] * luminance;
@@ -278,7 +278,6 @@ CurvePoint **compile_vertical_curves(const SDL_Surface *sdl_image)
 	calculate_gradient(&img);
 
 	for (int x = 0; x < w; x++) {
-		// calculate_gradient(&img);
 		calculate_vertical_gradient_sum(&img);
 		curves[x] = find_min_vertical_curve(&img);
 		remove_vertical_curve_from_image(&img, curves[x]);
@@ -413,7 +412,6 @@ int main(int argc, char **argv)
 {
 	SDL_Init(0);
 
-	printf("%d\n", argc);
 	if (argc != 2) die("Please provide an image path\n");
 
 	SDL_Surface *img = IMG_Load(argv[1]);
@@ -422,7 +420,11 @@ int main(int argc, char **argv)
 
 	printf("(x: %d, y: %d, channels: %d, pitch: %d)\n", img->w, img->h, img->format->BytesPerPixel, img->pitch);
 
+	START_CLOCK();
 	CurvePoint **curves = compile_vertical_curves(img);
+	END_CLOCK();
+	exit(1);
+
 
 	SDL_Window *window = SDL_CreateWindow(
 			"Image Evolution",
