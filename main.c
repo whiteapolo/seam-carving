@@ -423,7 +423,6 @@ int main(int argc, char **argv)
 	START_CLOCK();
 	CurvePoint **curves = compile_vertical_curves(img);
 	END_CLOCK();
-	exit(1);
 
 
 	SDL_Window *window = SDL_CreateWindow(
