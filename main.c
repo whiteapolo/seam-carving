@@ -21,11 +21,10 @@
 #include <stdint.h>
 #include <limits.h>
 #include <wchar.h>
-#include <wh/messure_time.h> // TODO: remove
 #include "util.h"
 
-
-const char RED[] = { 0xff, 0, 0 };
+#define clear_line()			printf("\033[K")
+#define set_cursor_x(x)			printf("\033[%dG", (x))
 
 #define WINDOW_WIDTH 800
 #define WINDOW_HEIGHT 800
@@ -277,14 +276,19 @@ CurvePoint **compile_vertical_curves(const SDL_Surface *sdl_image)
 
 	calculate_gradient(&img);
 
+	printf("completed 0%%");
+
 	for (int x = 0; x < w; x++) {
 		calculate_vertical_gradient_sum(&img);
 		curves[x] = find_min_vertical_curve(&img);
 		remove_vertical_curve_from_image(&img, curves[x]);
 		img.w--;
 		calculate_gradient_near_curve(&img, curves[x]);
-		if ((x + 1) % 50 == 0) printf("completed %d curves\n", x + 1);
+		clear_line();
+		printf("\rcompleted %3d%%", (int)((double)x / w * 100));
 	}
+
+	printf("\rcompleted 100%%\n");
 
 	free_image(&img);
 
@@ -420,9 +424,9 @@ int main(int argc, char **argv)
 
 	printf("(x: %d, y: %d, channels: %d, pitch: %d)\n", img->w, img->h, img->format->BytesPerPixel, img->pitch);
 
-	START_CLOCK();
+	clock_t start = clock();
 	CurvePoint **curves = compile_vertical_curves(img);
-	END_CLOCK();
+	printf("Compiling took: %f\n", ((double)clock() - start) / CLOCKS_PER_SEC);
 
 
 	SDL_Window *window = SDL_CreateWindow(
