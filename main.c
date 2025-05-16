@@ -24,7 +24,6 @@
 #include "util.h"
 
 #define clear_line()			printf("\033[K")
-#define set_cursor_x(x)			printf("\033[%dG", (x))
 
 #define WINDOW_WIDTH 800
 #define WINDOW_HEIGHT 800
@@ -291,8 +290,7 @@ CurvePoint **compile_vertical_curves(const SDL_Surface *sdl_image)
 		if (new_per > last_per) {
 			last_per = new_per;
 			clear_line();
-			printf("\rcompleted %3d%%", last_per);
-			set_cursor_x(0);
+			printf("\rcompleted %3d%%\r", last_per);
 			fflush(stdout);
 		}
 	}
