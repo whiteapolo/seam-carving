@@ -276,6 +276,8 @@ CurvePoint **compile_vertical_curves(const SDL_Surface *sdl_image)
 
 	calculate_gradient(&img);
 
+	int last_per = 0;
+
 	printf("completed 0%%");
 
 	for (int x = 0; x < w; x++) {
@@ -284,10 +286,15 @@ CurvePoint **compile_vertical_curves(const SDL_Surface *sdl_image)
 		remove_vertical_curve_from_image(&img, curves[x]);
 		img.w--;
 		calculate_gradient_near_curve(&img, curves[x]);
-		clear_line();
-		printf("\rcompleted %3d%%", (int)((double)x / w * 100));
-		set_cursor_x(0);
-		fflush(stdout);
+
+		int new_per = (int)((double)x / w * 100);
+		if (new_per > last_per) {
+			last_per = new_per;
+			clear_line();
+			printf("\rcompleted %3d%%", last_per);
+			set_cursor_x(0);
+			fflush(stdout);
+		}
 	}
 
 	printf("\rcompleted 100%%\n");
