@@ -8,6 +8,7 @@
 ## Quick Start
 
 ```console
-$ ./build.sh
+$ cc flint.c -o flint
+$ ./flint
 $ ./exe
 ```
