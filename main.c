@@ -23,12 +23,15 @@
 #include <wchar.h>
 #include "util.h"
 
-#define clear_line()			printf("\033[K")
+#define LIBZATAR_IMPLEMENTATION
+#include "libzatar.h"
 
-#define WINDOW_WIDTH 800
-#define WINDOW_HEIGHT 800
+#define clear_line()	printf("\033[K")
 
-#define IMG_SCALE 1
+#define WINDOW_WIDTH	800
+#define WINDOW_HEIGHT	800
+
+#define IMG_SCALE		1
 
 typedef struct __attribute__((packed)) {
 	unsigned char r, g, b; // must be first
@@ -101,12 +104,12 @@ void mat_set(void **mat, int x, int y, int c, size_t element_size)
 	}
 }
 
-static inline int get_pixel_luminance(unsigned char r, unsigned char g, unsigned char b)
+static inline int rgb_to_luminance(unsigned char r, unsigned char g, unsigned char b)
 {
 	return 0.299 * r + 0.587 * g + 0.114 * b;
 }
 
-static inline int get_pixel_gradient(const Image *img, int x, int y)
+static inline int pixel_gradient_at(const Image *img, int x, int y)
 {
 	int gx = 0;
 	int gy = 0;
@@ -117,7 +120,7 @@ static inline int get_pixel_gradient(const Image *img, int x, int y)
 				if (in_range(0, x + cx, img->w - 1)) {
 
 					Pixel pixel = img->pixels[y + cy][x + cx];
-					int luminance = get_pixel_luminance(pixel.r, pixel.g, pixel.b);
+					int luminance = rgb_to_luminance(pixel.r, pixel.g, pixel.b);
 
 					gx += SOBEL_X[cy + 1][cx + 1] * luminance;
 					gy += SOBEL_Y[cy + 1][cx + 1] * luminance;
@@ -133,7 +136,7 @@ void calculate_gradient(Image *img)
 {
 	for (int y = 0; y < img->h; y++) {
 		for (int x = 0; x < img->w; x++) {
-			img->pixels[y][x].gradient = get_pixel_gradient(img, x, y);
+			img->pixels[y][x].gradient = pixel_gradient_at(img, x, y);
 		}
 	}
 }
@@ -144,9 +147,9 @@ void calculate_gradient_near_curve(Image *img, CurvePoint *curve)
 
 		int x = curve[y].relative_x;
 
-		img->pixels[y][x].gradient = get_pixel_gradient(img, x, y);
-		if (x - 1 >= 0) img->pixels[y][x - 1].gradient = get_pixel_gradient(img, x - 1, y);
-		if (x + 1 < img->w) img->pixels[y][x + 1].gradient = get_pixel_gradient(img, x + 1, y);
+		img->pixels[y][x].gradient = pixel_gradient_at(img, x, y);
+		if (x - 1 >= 0) img->pixels[y][x - 1].gradient = pixel_gradient_at(img, x - 1, y);
+		if (x + 1 < img->w) img->pixels[y][x + 1].gradient = pixel_gradient_at(img, x + 1, y);
 	}
 }
 
