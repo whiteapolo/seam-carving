@@ -46,7 +46,7 @@
 
 typedef enum { Ok, Err, } z_result;
 
-int z_in_range(int min, int val, int max);
+bool z_in_range(int min, int val, int max);
 int z_get_file_size(FILE *fp);
 int z_get_fmt_size(const char *fmt, ...);
 int z_get_fmt_size_va(const char *fmt, va_list ap);
@@ -517,6 +517,11 @@ void *z_memdup(const void *mem, const size_t size)
 	void *newMem = malloc(size);
 	memcpy(newMem, mem, size);
 	return newMem;
+}
+
+bool z_in_range(int min, int val, int max)
+{
+	return min <= val && val <= max;
 }
 
 int z_max(int a, int b)

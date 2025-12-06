@@ -21,17 +21,13 @@
 #include <stdint.h>
 #include <limits.h>
 #include <wchar.h>
-#include "util.h"
 
 #define LIBZATAR_IMPLEMENTATION
 #include "libzatar.h"
 
-#define clear_line()	printf("\033[K")
-
+#define IMG_SCALE	1
 #define WINDOW_WIDTH	800
 #define WINDOW_HEIGHT	800
-
-#define IMG_SCALE		1
 
 typedef struct __attribute__((packed)) {
 	unsigned char r, g, b; // must be first
@@ -115,9 +111,9 @@ static inline int pixel_gradient_at(const Image *img, int x, int y)
 	int gy = 0;
 
 	for (int cy = -1; cy <= 1; cy++) {
-		if (in_range(0, y + cy, img->h - 1)) {
+		if (z_in_range(0, y + cy, img->h - 1)) {
 			for (int cx = -1; cx <= 1; cx++) {
-				if (in_range(0, x + cx, img->w - 1)) {
+				if (z_in_range(0, x + cx, img->w - 1)) {
 
 					Pixel pixel = img->pixels[y + cy][x + cx];
 					int luminance = rgb_to_luminance(pixel.r, pixel.g, pixel.b);
@@ -159,7 +155,7 @@ void calculate_vertical_gradient_sum(Image *img)
 
 		// middle
 		for (int x = 1; x < img->w - 1; x++) {
-			img->pixels[y][x].gradient_sum = img->pixels[y][x].gradient + min3(
+			img->pixels[y][x].gradient_sum = img->pixels[y][x].gradient + z_min3(
 				img->pixels[y + 1][x - 1].gradient_sum,
 				img->pixels[y + 1][x].gradient_sum,
 				img->pixels[y + 1][x + 1].gradient_sum
@@ -167,13 +163,13 @@ void calculate_vertical_gradient_sum(Image *img)
 		}
 
 		// left
-		img->pixels[y][0].gradient_sum = img->pixels[y][0].gradient + min(
+		img->pixels[y][0].gradient_sum = img->pixels[y][0].gradient + z_min(
 			img->pixels[y + 1][0].gradient_sum,
 			img->pixels[y + 1][1].gradient_sum
 		);
 
 		// right
-		img->pixels[y][img->w - 1].gradient_sum = img->pixels[y][img->w - 1].gradient + min(
+		img->pixels[y][img->w - 1].gradient_sum = img->pixels[y][img->w - 1].gradient + z_min(
 			img->pixels[y + 1][img->w - 1].gradient_sum,
 			img->pixels[y + 1][img->w - 2].gradient_sum
 		);
@@ -185,7 +181,7 @@ int get_next_x_in_curve(const Image *img, int x, int y)
 	int min_x = x;
 	int min_gradient = img->pixels[y][x].gradient_sum;
 
-	for (int x0 = max(0, x - 1); x0 < min(x + 2, img->w); x0++) {
+	for (int x0 = z_max(0, x - 1); x0 < z_min(x + 2, img->w); x0++) {
 		if (img->pixels[y][x0].gradient_sum < min_gradient) {
 			min_gradient = img->pixels[y][x0].gradient_sum;
 			min_x = x0;
@@ -248,7 +244,7 @@ Image format_image(const SDL_Surface *img)
 			memcpy(
 				&formatted_img.pixels[y][x],
 				&((char *)img->pixels)[y * img->pitch + (x * img->format->BytesPerPixel)],
-				min(img->format->BytesPerPixel, 3)
+				z_min(img->format->BytesPerPixel, 3)
 			);
 
 			formatted_img.pixels[y][x].x = x;
@@ -292,26 +288,18 @@ CurvePoint **compile_vertical_curves(const SDL_Surface *sdl_image)
 		int new_per = (int)((double)x / w * 100);
 		if (new_per > last_per) {
 			last_per = new_per;
-			clear_line();
+			z_clear_line();
 			printf("\rcompleted %3d%%\r", last_per);
 			fflush(stdout);
 		}
 	}
 
 	printf("\rcompleted 100%%\n");
-
 	free_image(&img);
 
 	return curves;
 }
 
-void *memdup(const void *src, size_t n)
-{
-	void *dst = malloc(n);
-	memcpy(dst, src, n);
-
-	return dst;
-}
 
 ResizableImage create_resizable_image(const char *original_pixels, int w, int h, int pitch, int bytes_per_pixel, const CurvePoint **curves)
 {
@@ -322,7 +310,7 @@ ResizableImage create_resizable_image(const char *original_pixels, int w, int h,
 		.original_h = h,
 		.h = h,
 		.original_pitch = pitch, .pitch = pitch,
-		.pixels = memdup(original_pixels, h * pitch),
+		.pixels = z_memdup(original_pixels, h * pitch),
 		.original_pixels = original_pixels,
 		.curves = curves,
 		.buffer = (bool **)mat_alloc(w, h, sizeof(bool)),
@@ -383,7 +371,9 @@ void window_loop(SDL_Window *window, SDL_Renderer *renderer, SDL_Texture *textur
 
 			case SDL_KEYDOWN:
 				switch (event.key.keysym.sym) {
-					case SDLK_ESCAPE: case SDLK_q: return;
+					case SDLK_ESCAPE:
+					case SDLK_q: 
+						return;
 				}
 				break;
 
@@ -409,7 +399,6 @@ void window_loop(SDL_Window *window, SDL_Renderer *renderer, SDL_Texture *textur
 				}
 
 				SDL_RenderCopy(renderer, texture, NULL, &texture_dimentions);
-
 				SDL_RenderPresent(renderer);
 			} break;
 		}
@@ -447,7 +436,7 @@ int main(int argc, char **argv)
 			SDL_WINDOW_RESIZABLE
 	);
 
-    SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
+  SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
 
 	SDL_Texture *texture = SDL_CreateTexture(renderer, img->format->format, 0, img->w, img->h);
 
@@ -455,9 +444,9 @@ int main(int argc, char **argv)
 
 	SDL_DestroyTexture(texture);
 	SDL_FreeSurface(img);
-    SDL_DestroyRenderer(renderer);
-    SDL_DestroyWindow(window);
-    SDL_Quit();
+  SDL_DestroyRenderer(renderer);
+  SDL_DestroyWindow(window);
+  SDL_Quit();
 
 	return 0;
 }
