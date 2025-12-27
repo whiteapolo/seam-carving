@@ -73,6 +73,15 @@ const int SOBEL_Y[3][3] = {
 	{  1,  2,  1 },
 };
 
+typedef struct {
+  bool *ptr;
+  size_t x;
+  size_t y;
+} Bool_Mat;
+
+#define MAT_NEW(Type, Element_Type, X, Y) ((Type){ .x = X, .y = Y, .ptr = malloc(sizeof(Element_Type) * X * Y) })
+#define MAT_AT(mat, X, Y) ((mat)->ptr[Y * (mat)->y + X])
+
 void **mat_alloc(int x, int y, size_t element_size)
 {
 	void **mat = malloc(sizeof(void *) * y);
@@ -372,7 +381,7 @@ void window_loop(SDL_Window *window, SDL_Renderer *renderer, SDL_Texture *textur
 			case SDL_KEYDOWN:
 				switch (event.key.keysym.sym) {
 					case SDLK_ESCAPE:
-					case SDLK_q: 
+					case SDLK_q:
 						return;
 				}
 				break;
