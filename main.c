@@ -152,34 +152,6 @@ void calculate_gradient_near_curve(Image *img, CurvePoint *curve)
 	}
 }
 
-// void calculate_vertical_gradient_sum(Image *img)
-// {
-// 	for (int y = img->h - 2; y >= 0; y--) {
-
-//     // left
-//     MAT_AT(&img->gradient_sum, 0, y) = MAT_AT(&img->gradient, 0, y)+ z_min(
-//           MAT_AT(&img->gradient_sum, 0, y + 1),
-//           MAT_AT(&img->gradient_sum, 1, y + 1)
-//     );
-
-// 		// middle
-// 		for (int x = 1; x < img->w - 1; x++) {
-//       MAT_AT(&img->gradient_sum, x, y) = MAT_AT(&img->gradient, x, y) + z_min3(
-//           MAT_AT(&img->gradient_sum, x - 1, y + 1),
-//           MAT_AT(&img->gradient_sum, x, y + 1),
-//           MAT_AT(&img->gradient_sum, x + 1, y + 1)
-//       );
-// 		}
-
-//     // right
-//     MAT_AT(&img->gradient_sum, img->w - 1, y) = MAT_AT(&img->gradient, img->w - 1, y) + z_min(
-//           MAT_AT(&img->gradient_sum, img->w - 1, y + 1),
-//           MAT_AT(&img->gradient_sum, img->w - 2, y + 1)
-//     );
-// 	}
-// }
-
-
 void calculate_vertical_gradient_sum(Image *img)
 {
     int w = img->w;
