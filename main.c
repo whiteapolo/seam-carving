@@ -36,11 +36,17 @@ typedef struct {
 } Bool_Mat;
 
 typedef struct __attribute__((packed)) {
-	unsigned char r, g, b; // must be first
+  unsigned char luminance;
 	unsigned int x;
 	int gradient;
 	int gradient_sum;
 } Pixel;
+
+typedef struct {
+  Pixel *ptr;
+  size_t x;
+  size_t y;
+} Pixel_Mat;
 
 typedef struct {
 	Pixel **pixels;
@@ -80,7 +86,7 @@ const int SOBEL_Y[3][3] = {
 };
 
 #define MAT_NEW(Type, Element_Type, X, Y) ((Type){ .x = X, .y = Y, .ptr = malloc(sizeof(Element_Type) * (X) * (Y)) })
-#define MAT_AT(mat, Y, X) ((mat)->ptr[(Y) * (mat)->y + (X)])
+#define MAT_AT(mat, X, Y) ((mat)->ptr[(Y) * (mat)->y + (X)])
 
 void **mat_alloc(int x, int y, size_t element_size)
 {
@@ -123,9 +129,7 @@ static inline int pixel_gradient_at(const Image *img, int x, int y)
 		if (z_in_range(0, y + cy, img->h - 1)) {
 			for (int cx = -1; cx <= 1; cx++) {
 				if (z_in_range(0, x + cx, img->w - 1)) {
-
-					Pixel pixel = img->pixels[y + cy][x + cx];
-					int luminance = rgb_to_luminance(pixel.r, pixel.g, pixel.b);
+					int luminance = img->pixels[y + cy][x + cx].luminance;
 
 					gx += SOBEL_X[cy + 1][cx + 1] * luminance;
 					gy += SOBEL_Y[cy + 1][cx + 1] * luminance;
@@ -248,16 +252,23 @@ Image format_image(const SDL_Surface *img)
 		.h = img->h,
 	};
 
+  const char *pixels = img->pixels;
+
 	for (int y = 0; y < img->h; y++) {
 		for (int x = 0; x < img->w; x++) {
-			memcpy(
-				&formatted_img.pixels[y][x],
-				&((char *)img->pixels)[y * img->pitch + (x * img->format->BytesPerPixel)],
-				z_min(img->format->BytesPerPixel, 3)
-			);
+      unsigned char r = pixels[y * img->pitch + (x * img->format->BytesPerPixel)];
+      unsigned char g = pixels[y * img->pitch + (x * img->format->BytesPerPixel) + 1];
+      unsigned char b = pixels[y * img->pitch + (x * img->format->BytesPerPixel) + 2];
+
+      formatted_img.pixels[y][x].luminance = rgb_to_luminance(r, g, b);
+
+			// memcpy(
+			// 	&formatted_img.pixels[y][x],
+			// 	&((char *)img->pixels)[y * img->pitch + (x * img->format->BytesPerPixel)],
+			// 	z_min(img->format->BytesPerPixel, 3)
+			// );
 
 			formatted_img.pixels[y][x].x = x;
-			// formatted_img.pixels[y][x].y = y;
 		}
 	}
 
@@ -322,7 +333,7 @@ ResizableImage create_resizable_image(const char *original_pixels, int w, int h,
 		.pixels = z_memdup(original_pixels, h * pitch),
 		.original_pixels = original_pixels,
 		.curves = curves,
-		.buffer = MAT_NEW(Bool_Mat, bool, h, w),
+		.buffer = MAT_NEW(Bool_Mat, bool, w, h),
 	};
 
 	return img;
@@ -332,8 +343,8 @@ void resize_img(ResizableImage *img, int desired_width)
 {
   memset(img->buffer.ptr, 0, img->buffer.x * img->buffer.y * sizeof(bool));
 
-	for (int x = 0; x < img->original_w - desired_width; x++) {
-		for (int y = 0; y < img->original_h; y++) {
+	for (int y = 0; y < img->original_h; y++) {
+	  for (int x = 0; x < img->original_w - desired_width; x++) {
       MAT_AT(&img->buffer, y, img->curves[x][y].absulote_x) = true;
 		}
 	}
