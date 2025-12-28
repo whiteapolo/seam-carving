@@ -133,42 +133,92 @@ void calculate_gradient(Image *img)
 
 void calculate_gradient_near_curve(Image *img, CurvePoint *curve)
 {
+  int *gradient = img->gradient.ptr;
+  int gradient_x = img->gradient.x;
+
 	for (int y = 0; y < img->h; y++) {
-
 		int x = curve[y].relative_x;
+    int *row = gradient + (y * gradient_x);
 
-    MAT_AT(&img->gradient, x, y) = pixel_gradient_at(img, x, y);
-		if (x - 1 >= 0) MAT_AT(&img->gradient, x - 1, y) = pixel_gradient_at(img, x - 1, y);
-		if (x + 1 < img->w) MAT_AT(&img->gradient, x + 1, y) = pixel_gradient_at(img, x + 1, y);
+    row[y + x] = pixel_gradient_at(img, x, y);
+
+		if (x - 1 >= 0) {
+      row[x - 1] = pixel_gradient_at(img, x - 1, y);
+    }
+
+		if (x + 1 < img->w) {
+      row[x + 1] = pixel_gradient_at(img, x + 1, y);
+    }
 	}
 }
+
+// void calculate_vertical_gradient_sum(Image *img)
+// {
+// 	for (int y = img->h - 2; y >= 0; y--) {
+
+//     // left
+//     MAT_AT(&img->gradient_sum, 0, y) = MAT_AT(&img->gradient, 0, y)+ z_min(
+//           MAT_AT(&img->gradient_sum, 0, y + 1),
+//           MAT_AT(&img->gradient_sum, 1, y + 1)
+//     );
+
+// 		// middle
+// 		for (int x = 1; x < img->w - 1; x++) {
+//       MAT_AT(&img->gradient_sum, x, y) = MAT_AT(&img->gradient, x, y) + z_min3(
+//           MAT_AT(&img->gradient_sum, x - 1, y + 1),
+//           MAT_AT(&img->gradient_sum, x, y + 1),
+//           MAT_AT(&img->gradient_sum, x + 1, y + 1)
+//       );
+// 		}
+
+//     // right
+//     MAT_AT(&img->gradient_sum, img->w - 1, y) = MAT_AT(&img->gradient, img->w - 1, y) + z_min(
+//           MAT_AT(&img->gradient_sum, img->w - 1, y + 1),
+//           MAT_AT(&img->gradient_sum, img->w - 2, y + 1)
+//     );
+// 	}
+// }
+
 
 void calculate_vertical_gradient_sum(Image *img)
 {
-	for (int y = img->h - 2; y >= 0; y--) {
+    int w = img->w;
+    int *gradient     = img->gradient.ptr;
+    int *gradient_sum = img->gradient_sum.ptr;
+    int gradient_x     = img->gradient.x;
+    int gradient_sum_x = img->gradient_sum.x;
 
-    // left
-    MAT_AT(&img->gradient_sum, 0, y) = MAT_AT(&img->gradient, 0, y)+ z_min(
-          MAT_AT(&img->gradient_sum, 0, y + 1),
-          MAT_AT(&img->gradient_sum, 1, y + 1)
-    );
+    for (int y = img->h - 2; y >= 0; y--) {
 
-		// middle
-		for (int x = 1; x < img->w - 1; x++) {
-      MAT_AT(&img->gradient_sum, x, y) = MAT_AT(&img->gradient, x, y) + z_min3(
-          MAT_AT(&img->gradient_sum, x - 1, y + 1),
-          MAT_AT(&img->gradient_sum, x, y + 1),
-          MAT_AT(&img->gradient_sum, x + 1, y + 1)
-      );
-		}
+        int row_gradient     = y * gradient_x;
+        int row_gradient_sum      = y * gradient_sum_x;
+        int row_gradient_sum_next = (y + 1) * gradient_sum_x;
 
-    // right
-    MAT_AT(&img->gradient_sum, img->w - 1, y) = MAT_AT(&img->gradient, img->w - 1, y) + z_min(
-          MAT_AT(&img->gradient_sum, img->w - 1, y + 1),
-          MAT_AT(&img->gradient_sum, img->w - 2, y + 1)
-    );
-	}
+        // left
+        gradient_sum[row_gradient_sum + 0] = gradient[row_gradient + 0] + z_min(
+                gradient_sum[row_gradient_sum_next + 0],
+                gradient_sum[row_gradient_sum_next + 1]
+        );
+
+        // middle
+        for (int x = 1; x < w - 1; x++) {
+            gradient_sum[row_gradient_sum + x] = gradient[row_gradient + x] + z_min3(
+                    gradient_sum[row_gradient_sum_next + x - 1],
+                    gradient_sum[row_gradient_sum_next + x],
+                    gradient_sum[row_gradient_sum_next + x + 1]
+						);
+        }
+
+        // right
+        gradient_sum[row_gradient_sum + w - 1] =
+            gradient[row_gradient + w - 1] +
+            z_min(
+                gradient_sum[row_gradient_sum_next + w - 1],
+                gradient_sum[row_gradient_sum_next + w - 2]
+            );
+    }
 }
+
 
 int get_next_x_in_curve(const Image *img, int x, int y)
 {

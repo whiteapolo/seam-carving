@@ -3,7 +3,7 @@ all:
 
 profile:
 	gcc main.c -O3 -o exe -lm -lSDL2 -lSDL2_image -pg
-	./exe "$1"
+	./exe "./images/surfer.jpg"
 	gprof exe gmon.out > anal.txt
 	rm -rf gmon.out
 
