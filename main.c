@@ -29,9 +29,15 @@
 #define WINDOW_WIDTH	800
 #define WINDOW_HEIGHT	800
 
+typedef struct {
+  bool *ptr;
+  size_t x;
+  size_t y;
+} Bool_Mat;
+
 typedef struct __attribute__((packed)) {
 	unsigned char r, g, b; // must be first
-	unsigned int x, y;
+	unsigned int x;
 	int gradient;
 	int gradient_sum;
 } Pixel;
@@ -58,7 +64,7 @@ typedef struct {
 	int w;
 	int h;
 	int bytes_per_pixel;
-	bool **buffer;
+	Bool_Mat buffer;
 } ResizableImage;
 
 const int SOBEL_X[3][3] = {
@@ -73,14 +79,8 @@ const int SOBEL_Y[3][3] = {
 	{  1,  2,  1 },
 };
 
-typedef struct {
-  bool *ptr;
-  size_t x;
-  size_t y;
-} Bool_Mat;
-
-#define MAT_NEW(Type, Element_Type, X, Y) ((Type){ .x = X, .y = Y, .ptr = malloc(sizeof(Element_Type) * X * Y) })
-#define MAT_AT(mat, X, Y) ((mat)->ptr[Y * (mat)->y + X])
+#define MAT_NEW(Type, Element_Type, X, Y) ((Type){ .x = X, .y = Y, .ptr = malloc(sizeof(Element_Type) * (X) * (Y)) })
+#define MAT_AT(mat, Y, X) ((mat)->ptr[(Y) * (mat)->y + (X)])
 
 void **mat_alloc(int x, int y, size_t element_size)
 {
@@ -257,7 +257,7 @@ Image format_image(const SDL_Surface *img)
 			);
 
 			formatted_img.pixels[y][x].x = x;
-			formatted_img.pixels[y][x].y = y;
+			// formatted_img.pixels[y][x].y = y;
 		}
 	}
 
@@ -322,7 +322,7 @@ ResizableImage create_resizable_image(const char *original_pixels, int w, int h,
 		.pixels = z_memdup(original_pixels, h * pitch),
 		.original_pixels = original_pixels,
 		.curves = curves,
-		.buffer = (bool **)mat_alloc(w, h, sizeof(bool)),
+		.buffer = MAT_NEW(Bool_Mat, bool, h, w),
 	};
 
 	return img;
@@ -330,11 +330,11 @@ ResizableImage create_resizable_image(const char *original_pixels, int w, int h,
 
 void resize_img(ResizableImage *img, int desired_width)
 {
-	mat_set((void **)img->buffer, img->original_w, img->original_h, 0, sizeof(bool));
+  memset(img->buffer.ptr, 0, img->buffer.x * img->buffer.y * sizeof(bool));
 
 	for (int x = 0; x < img->original_w - desired_width; x++) {
 		for (int y = 0; y < img->original_h; y++) {
-			img->buffer[y][img->curves[x][y].absulote_x] = true;
+      MAT_AT(&img->buffer, y, img->curves[x][y].absulote_x) = true;
 		}
 	}
 
@@ -344,7 +344,7 @@ void resize_img(ResizableImage *img, int desired_width)
 	for (int y = 0; y < img->original_h; y++) {
 		int x0 = 0;
 		for (int x = 0; x < img->original_w; x++) {
-			if (!img->buffer[y][x]) {
+      if (!MAT_AT(&img->buffer, y, x)) {
 				memcpy(
 					&img->pixels[y * img->pitch + x0 * img->bytes_per_pixel],
 					&img->original_pixels[y * img->original_pitch + x * img->bytes_per_pixel],

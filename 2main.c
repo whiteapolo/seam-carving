@@ -16,7 +16,7 @@ typedef struct {
   unsigned char *ptr;
   unsigned int width;
   unsigned int height;
-} Luminance_Image;
+} Luminance_Mat;
 
 typedef struct {
   int gradient;
@@ -26,7 +26,7 @@ typedef struct {
   int *ptr;
   unsigned int width;
   unsigned int height;
-} Gradient_Image;
+} Gradient_Mat;
 
 typedef struct {
   unsigned int x;
@@ -41,6 +41,8 @@ typedef struct {
 Luminance_Image image_to_luminance();
 Gradient_Image luminance_image_to_gradient();
 
+#define MAT_NEW(Type, Element_Type, X, Y) ((Type){ .x = X, .y = Y, .ptr = malloc(sizeof(Element_Type) * X * Y) })
+#define MAT_AT(mat, X, Y) ((mat)->ptr[(Y) * (mat)->y + (X)])
 
 void main()
 {
