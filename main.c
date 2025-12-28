@@ -41,9 +41,15 @@ typedef struct {
   size_t y;
 } Luminance_Mat;
 
+typedef struct {
+  int *ptr;
+  size_t x;
+  size_t y;
+} Gradient_Mat;
+
 typedef struct __attribute__((packed)) {
 	unsigned int x;
-	int gradient;
+	// int gradient;
 	int gradient_sum;
 } Pixel;
 
@@ -56,6 +62,7 @@ typedef struct {
 typedef struct {
   Luminance_Mat luminance;
   Pixel_Mat pixels;
+  Gradient_Mat gradient;
 	int w;
 	int h;
 } Image;
@@ -125,7 +132,8 @@ void calculate_gradient(Image *img)
 {
 	for (int y = 0; y < img->h; y++) {
 		for (int x = 0; x < img->w; x++) {
-      MAT_AT(&img->pixels, x, y).gradient = pixel_gradient_at(img, x, y);
+      MAT_AT(&img->gradient, x, y) = pixel_gradient_at(img, x, y);
+      // MAT_AT(&img->pixels, x, y).gradient = pixel_gradient_at(img, x, y);
 		}
 	}
 }
@@ -136,9 +144,13 @@ void calculate_gradient_near_curve(Image *img, CurvePoint *curve)
 
 		int x = curve[y].relative_x;
 
-    MAT_AT(&img->pixels, x, y).gradient = pixel_gradient_at(img, x, y);
-		if (x - 1 >= 0) MAT_AT(&img->pixels, x - 1, y).gradient = pixel_gradient_at(img, x - 1, y);
-		if (x + 1 < img->w) MAT_AT(&img->pixels, x + 1, y).gradient = pixel_gradient_at(img, x + 1, y);
+    MAT_AT(&img->gradient, x, y) = pixel_gradient_at(img, x, y);
+		if (x - 1 >= 0) MAT_AT(&img->gradient, x - 1, y) = pixel_gradient_at(img, x - 1, y);
+		if (x + 1 < img->w) MAT_AT(&img->gradient, x + 1, y) = pixel_gradient_at(img, x + 1, y);
+
+    // MAT_AT(&img->pixels, x, y).gradient = pixel_gradient_at(img, x, y);
+		// if (x - 1 >= 0) MAT_AT(&img->pixels, x - 1, y).gradient = pixel_gradient_at(img, x - 1, y);
+		// if (x + 1 < img->w) MAT_AT(&img->pixels, x + 1, y).gradient = pixel_gradient_at(img, x + 1, y);
 	}
 }
 
@@ -147,14 +159,14 @@ void calculate_vertical_gradient_sum(Image *img)
 	for (int y = img->h - 2; y >= 0; y--) {
 
     // left
-    MAT_AT(&img->pixels, 0, y).gradient_sum = MAT_AT(&img->pixels, 0, y).gradient + z_min(
+    MAT_AT(&img->pixels, 0, y).gradient_sum = MAT_AT(&img->gradient, 0, y)+ z_min(
           MAT_AT(&img->pixels, 0, y + 1).gradient_sum,
           MAT_AT(&img->pixels, 1, y + 1).gradient_sum
     );
 
 		// middle
 		for (int x = 1; x < img->w - 1; x++) {
-      MAT_AT(&img->pixels, x, y).gradient_sum = MAT_AT(&img->pixels, x, y).gradient + z_min3(
+      MAT_AT(&img->pixels, x, y).gradient_sum = MAT_AT(&img->gradient, x, y) + z_min3(
           MAT_AT(&img->pixels, x - 1, y + 1).gradient_sum,
           MAT_AT(&img->pixels, x, y + 1).gradient_sum,
           MAT_AT(&img->pixels, x + 1, y + 1).gradient_sum
@@ -162,7 +174,7 @@ void calculate_vertical_gradient_sum(Image *img)
 		}
 
     // right
-    MAT_AT(&img->pixels, img->w - 1, y).gradient_sum = MAT_AT(&img->pixels, img->w - 1, y).gradient + z_min(
+    MAT_AT(&img->pixels, img->w - 1, y).gradient_sum = MAT_AT(&img->gradient, img->w - 1, y) + z_min(
           MAT_AT(&img->pixels, img->w - 1, y + 1).gradient_sum,
           MAT_AT(&img->pixels, img->w - 2, y + 1).gradient_sum
     );
@@ -225,6 +237,12 @@ void remove_vertical_curve_from_image(Image *img, CurvePoint *curve)
     unsigned char *row_start = &MAT_AT(&img->luminance, x_to_remove, i);
     memmove(row_start, row_start + 1, sizeof(unsigned char) * (img->w - x_to_remove - 1));
 	}
+
+	for (int i = 0; i < img->h; i++) {
+		int x_to_remove = curve[i].relative_x;
+    int *row_start = &MAT_AT(&img->gradient, x_to_remove, i);
+    memmove(row_start, row_start + 1, sizeof(int) * (img->w - x_to_remove - 1));
+	}
 }
 
 Image format_image(const SDL_Surface *img)
@@ -232,6 +250,7 @@ Image format_image(const SDL_Surface *img)
 	Image formatted_img = {
     .pixels = MAT_NEW(Pixel_Mat, Pixel, img->w, img->h),
     .luminance = MAT_NEW(Luminance_Mat, unsigned char, img->w, img->h),
+    .gradient = MAT_NEW(Gradient_Mat, int, img->w, img->h),
 		.w = img->w,
 		.h = img->h,
 	};
@@ -257,6 +276,7 @@ void free_image(Image *img)
 {
   free(img->pixels.ptr);
   free(img->luminance.ptr);
+  free(img->gradient.ptr);
 }
 
 CurvePoint **compile_vertical_curves(const SDL_Surface *sdl_image)
