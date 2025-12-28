@@ -35,8 +35,13 @@ typedef struct {
   size_t y;
 } Bool_Mat;
 
+typedef struct {
+  unsigned char *ptr;
+  size_t x;
+  size_t y;
+} Luminance_Mat;
+
 typedef struct __attribute__((packed)) {
-  unsigned char luminance;
 	unsigned int x;
 	int gradient;
 	int gradient_sum;
@@ -49,6 +54,7 @@ typedef struct {
 } Pixel_Mat;
 
 typedef struct {
+  Luminance_Mat luminance;
   Pixel_Mat pixels;
 	int w;
 	int h;
@@ -88,7 +94,7 @@ const int SOBEL_Y[3][3] = {
 #define MAT_NEW(Type, Element_Type, X, Y) ((Type){ .x = X, .y = Y, .ptr = malloc(sizeof(Element_Type) * (X) * (Y)) })
 #define MAT_AT(mat, X, Y) ((mat)->ptr[(Y) * (mat)->x + (X)])
 
-static inline int rgb_to_luminance(unsigned char r, unsigned char g, unsigned char b)
+static inline unsigned char rgb_to_luminance(unsigned char r, unsigned char g, unsigned char b)
 {
 	return 0.299 * r + 0.587 * g + 0.114 * b;
 }
@@ -102,7 +108,8 @@ static inline int pixel_gradient_at(const Image *img, int x, int y)
 		if (z_in_range(0, y + cy, img->h - 1)) {
 			for (int cx = -1; cx <= 1; cx++) {
 				if (z_in_range(0, x + cx, img->w - 1)) {
-					int luminance = MAT_AT(&img->pixels, x + cx, y + cy).luminance;
+					// int luminance = MAT_AT(&img->pixels, x + cx, y + cy).luminance;
+					int luminance = MAT_AT(&img->luminance, x + cx, y + cy);
 
 					gx += SOBEL_X[cy + 1][cx + 1] * luminance;
 					gy += SOBEL_Y[cy + 1][cx + 1] * luminance;
@@ -212,12 +219,19 @@ void remove_vertical_curve_from_image(Image *img, CurvePoint *curve)
     Pixel *row_start = &MAT_AT(&img->pixels, x_to_remove, i);
     memmove(row_start, row_start + 1, sizeof(Pixel) * (img->w - x_to_remove - 1));
 	}
+
+	for (int i = 0; i < img->h; i++) {
+		int x_to_remove = curve[i].relative_x;
+    unsigned char *row_start = &MAT_AT(&img->luminance, x_to_remove, i);
+    memmove(row_start, row_start + 1, sizeof(unsigned char) * (img->w - x_to_remove - 1));
+	}
 }
 
 Image format_image(const SDL_Surface *img)
 {
 	Image formatted_img = {
     .pixels = MAT_NEW(Pixel_Mat, Pixel, img->w, img->h),
+    .luminance = MAT_NEW(Luminance_Mat, unsigned char, img->w, img->h),
 		.w = img->w,
 		.h = img->h,
 	};
@@ -230,7 +244,8 @@ Image format_image(const SDL_Surface *img)
       unsigned char g = pixels[y * img->pitch + (x * img->format->BytesPerPixel) + 1];
       unsigned char b = pixels[y * img->pitch + (x * img->format->BytesPerPixel) + 2];
 
-      MAT_AT(&formatted_img.pixels, x, y).luminance = rgb_to_luminance(r, g, b);
+      MAT_AT(&formatted_img.luminance, x, y) = rgb_to_luminance(r, g, b);
+      // MAT_AT(&formatted_img.pixels, x, y).luminance = rgb_to_luminance(r, g, b);
       MAT_AT(&formatted_img.pixels, x, y).x = x;
 		}
 	}
@@ -241,6 +256,7 @@ Image format_image(const SDL_Surface *img)
 void free_image(Image *img)
 {
   free(img->pixels.ptr);
+  free(img->luminance.ptr);
 }
 
 CurvePoint **compile_vertical_curves(const SDL_Surface *sdl_image)
