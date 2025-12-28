@@ -47,22 +47,17 @@ typedef struct {
   size_t y;
 } Gradient_Mat;
 
-typedef struct __attribute__((packed)) {
-	unsigned int x;
-	// int gradient;
-	int gradient_sum;
-} Pixel;
-
 typedef struct {
-  Pixel *ptr;
+  unsigned int *ptr;
   size_t x;
   size_t y;
-} Pixel_Mat;
+} X_Pos_Mat;
 
 typedef struct {
   Luminance_Mat luminance;
-  Pixel_Mat pixels;
+  X_Pos_Mat positions;
   Gradient_Mat gradient;
+  Gradient_Mat gradient_sum;
 	int w;
 	int h;
 } Image;
@@ -115,7 +110,6 @@ static inline int pixel_gradient_at(const Image *img, int x, int y)
 		if (z_in_range(0, y + cy, img->h - 1)) {
 			for (int cx = -1; cx <= 1; cx++) {
 				if (z_in_range(0, x + cx, img->w - 1)) {
-					// int luminance = MAT_AT(&img->pixels, x + cx, y + cy).luminance;
 					int luminance = MAT_AT(&img->luminance, x + cx, y + cy);
 
 					gx += SOBEL_X[cy + 1][cx + 1] * luminance;
@@ -133,7 +127,6 @@ void calculate_gradient(Image *img)
 	for (int y = 0; y < img->h; y++) {
 		for (int x = 0; x < img->w; x++) {
       MAT_AT(&img->gradient, x, y) = pixel_gradient_at(img, x, y);
-      // MAT_AT(&img->pixels, x, y).gradient = pixel_gradient_at(img, x, y);
 		}
 	}
 }
@@ -147,10 +140,6 @@ void calculate_gradient_near_curve(Image *img, CurvePoint *curve)
     MAT_AT(&img->gradient, x, y) = pixel_gradient_at(img, x, y);
 		if (x - 1 >= 0) MAT_AT(&img->gradient, x - 1, y) = pixel_gradient_at(img, x - 1, y);
 		if (x + 1 < img->w) MAT_AT(&img->gradient, x + 1, y) = pixel_gradient_at(img, x + 1, y);
-
-    // MAT_AT(&img->pixels, x, y).gradient = pixel_gradient_at(img, x, y);
-		// if (x - 1 >= 0) MAT_AT(&img->pixels, x - 1, y).gradient = pixel_gradient_at(img, x - 1, y);
-		// if (x + 1 < img->w) MAT_AT(&img->pixels, x + 1, y).gradient = pixel_gradient_at(img, x + 1, y);
 	}
 }
 
@@ -159,24 +148,24 @@ void calculate_vertical_gradient_sum(Image *img)
 	for (int y = img->h - 2; y >= 0; y--) {
 
     // left
-    MAT_AT(&img->pixels, 0, y).gradient_sum = MAT_AT(&img->gradient, 0, y)+ z_min(
-          MAT_AT(&img->pixels, 0, y + 1).gradient_sum,
-          MAT_AT(&img->pixels, 1, y + 1).gradient_sum
+    MAT_AT(&img->gradient_sum, 0, y) = MAT_AT(&img->gradient, 0, y)+ z_min(
+          MAT_AT(&img->gradient_sum, 0, y + 1),
+          MAT_AT(&img->gradient_sum, 1, y + 1)
     );
 
 		// middle
 		for (int x = 1; x < img->w - 1; x++) {
-      MAT_AT(&img->pixels, x, y).gradient_sum = MAT_AT(&img->gradient, x, y) + z_min3(
-          MAT_AT(&img->pixels, x - 1, y + 1).gradient_sum,
-          MAT_AT(&img->pixels, x, y + 1).gradient_sum,
-          MAT_AT(&img->pixels, x + 1, y + 1).gradient_sum
+      MAT_AT(&img->gradient_sum, x, y) = MAT_AT(&img->gradient, x, y) + z_min3(
+          MAT_AT(&img->gradient_sum, x - 1, y + 1),
+          MAT_AT(&img->gradient_sum, x, y + 1),
+          MAT_AT(&img->gradient_sum, x + 1, y + 1)
       );
 		}
 
     // right
-    MAT_AT(&img->pixels, img->w - 1, y).gradient_sum = MAT_AT(&img->gradient, img->w - 1, y) + z_min(
-          MAT_AT(&img->pixels, img->w - 1, y + 1).gradient_sum,
-          MAT_AT(&img->pixels, img->w - 2, y + 1).gradient_sum
+    MAT_AT(&img->gradient_sum, img->w - 1, y) = MAT_AT(&img->gradient, img->w - 1, y) + z_min(
+          MAT_AT(&img->gradient_sum, img->w - 1, y + 1),
+          MAT_AT(&img->gradient_sum, img->w - 2, y + 1)
     );
 	}
 }
@@ -184,11 +173,11 @@ void calculate_vertical_gradient_sum(Image *img)
 int get_next_x_in_curve(const Image *img, int x, int y)
 {
 	int min_x = x;
-	int min_gradient = MAT_AT(&img->pixels, x, y).gradient_sum;
+	int min_gradient = MAT_AT(&img->gradient_sum, x, y);
 
 	for (int x0 = z_max(0, x - 1); x0 < z_min(x + 2, img->w); x0++) {
-    if (MAT_AT(&img->pixels, x0, y).gradient_sum < min_gradient) {
-			min_gradient = MAT_AT(&img->pixels, x0, y).gradient_sum;
+    if (MAT_AT(&img->gradient_sum, x0, y) < min_gradient) {
+			min_gradient = MAT_AT(&img->gradient_sum, x0, y);
 			min_x = x0;
 		}
 	}
@@ -201,12 +190,12 @@ CurvePoint *find_min_vertical_curve(const Image *img)
 	CurvePoint *curve = malloc(sizeof(CurvePoint) * img->h);
 
 	int min_x = 0;
-	int min_grad = MAT_AT(&img->pixels, 0, 0).gradient_sum;
+	int min_grad = MAT_AT(&img->gradient_sum, 0, 0);
 
 	// find first min x
 	for (int x = 1; x < img->w; x++) {
-		if (MAT_AT(&img->pixels, x, 0).gradient_sum < min_grad) {
-      min_grad = MAT_AT(&img->pixels, x, 0).gradient_sum;
+		if (MAT_AT(&img->gradient_sum, x, 0) < min_grad) {
+      min_grad = MAT_AT(&img->gradient_sum, x, 0);
 			min_x = x;
 		}
 	}
@@ -218,7 +207,7 @@ CurvePoint *find_min_vertical_curve(const Image *img)
 	}
 
 	for (int y = 0; y < img->h; y++) {
-		curve[y].absulote_x = MAT_AT(&img->pixels, curve[y].relative_x, y).x;
+		curve[y].absulote_x = MAT_AT(&img->positions, curve[y].relative_x, y);
 	}
 
 	return curve;
@@ -228,8 +217,8 @@ void remove_vertical_curve_from_image(Image *img, CurvePoint *curve)
 {
 	for (int i = 0; i < img->h; i++) {
 		int x_to_remove = curve[i].relative_x;
-    Pixel *row_start = &MAT_AT(&img->pixels, x_to_remove, i);
-    memmove(row_start, row_start + 1, sizeof(Pixel) * (img->w - x_to_remove - 1));
+    unsigned int *row_start = &MAT_AT(&img->positions, x_to_remove, i);
+    memmove(row_start, row_start + 1, sizeof(unsigned int) * (img->w - x_to_remove - 1));
 	}
 
 	for (int i = 0; i < img->h; i++) {
@@ -248,9 +237,10 @@ void remove_vertical_curve_from_image(Image *img, CurvePoint *curve)
 Image format_image(const SDL_Surface *img)
 {
 	Image formatted_img = {
-    .pixels = MAT_NEW(Pixel_Mat, Pixel, img->w, img->h),
+    .positions = MAT_NEW(X_Pos_Mat, unsigned int, img->w, img->h),
     .luminance = MAT_NEW(Luminance_Mat, unsigned char, img->w, img->h),
     .gradient = MAT_NEW(Gradient_Mat, int, img->w, img->h),
+    .gradient_sum = MAT_NEW(Gradient_Mat, int, img->w, img->h),
 		.w = img->w,
 		.h = img->h,
 	};
@@ -264,8 +254,7 @@ Image format_image(const SDL_Surface *img)
       unsigned char b = pixels[y * img->pitch + (x * img->format->BytesPerPixel) + 2];
 
       MAT_AT(&formatted_img.luminance, x, y) = rgb_to_luminance(r, g, b);
-      // MAT_AT(&formatted_img.pixels, x, y).luminance = rgb_to_luminance(r, g, b);
-      MAT_AT(&formatted_img.pixels, x, y).x = x;
+      MAT_AT(&formatted_img.positions, x, y) = x;
 		}
 	}
 
@@ -274,9 +263,10 @@ Image format_image(const SDL_Surface *img)
 
 void free_image(Image *img)
 {
-  free(img->pixels.ptr);
+  free(img->positions.ptr);
   free(img->luminance.ptr);
   free(img->gradient.ptr);
+  free(img->gradient_sum.ptr);
 }
 
 CurvePoint **compile_vertical_curves(const SDL_Surface *sdl_image)
