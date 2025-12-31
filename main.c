@@ -21,8 +21,8 @@
 #include <stdint.h>
 #include <limits.h>
 #include <wchar.h>
+#include "zlib/include/z_time.h"
 
-#define IMG_SCALE	1
 #define WINDOW_WIDTH	800
 #define WINDOW_HEIGHT	800
 
@@ -30,6 +30,13 @@
 #define MAT_AT(mat, X, Y) ((mat)->ptr[(Y) * (mat)->x + (X)])
 
 #define z_clear_line() printf("\033[K")
+
+typedef struct {
+  int whatineedtodo;
+  int whatihavedone;
+  int lastprogresspersantage;
+  Z_Clock big_bang;
+} Progress;
 
 typedef struct {
   bool *ptr;
@@ -60,9 +67,9 @@ typedef struct {
   X_Pos_Mat positions;
   Gradient_Mat gradient;
   Gradient_Mat gradient_sum;
-	int w;
-	int h;
-} Image;
+	int width;
+	int height;
+} Horizontal_Seam_Carving_State;
 
 typedef struct {
 	unsigned int relative_x;
@@ -81,7 +88,7 @@ typedef struct {
 	int h;
 	int bytes_per_pixel;
 	Bool_Mat buffer;
-} ResizableImage;
+} Horizontal_Dynamic_Image;
 
 static inline bool in_range(int min, int val, int max)
 {
@@ -91,13 +98,6 @@ static inline bool in_range(int min, int val, int max)
 static inline unsigned char rgb_to_luminance(unsigned char r, unsigned char g, unsigned char b)
 {
 	return 0.299 * r + 0.587 * g + 0.114 * b;
-}
-
-void *memdup(const void *mem, const size_t size)
-{
-	void *newMem = malloc(size);
-	memcpy(newMem, mem, size);
-	return newMem;
 }
 
 static inline int max(int a, int b)
@@ -115,7 +115,52 @@ static inline int min3(int a, int b, int c)
 	return min(a, min(b, c));
 }
 
-static inline int pixel_gradient_at(const Image *img, int x, int y)
+void *memdup(const void *mem, const size_t size)
+{
+	void *newMem = malloc(size);
+	memcpy(newMem, mem, size);
+	return newMem;
+}
+
+Progress create_progress(int whatineedtodo)
+{
+  Progress progress = {
+    .whatineedtodo = whatineedtodo,
+    .whatihavedone = 0,
+    .lastprogresspersantage = -1,
+    .big_bang = z_get_clock(),
+  };
+
+  return progress;
+}
+
+void set_progress(Progress *progress, int whatihavedone)
+{
+  progress->whatihavedone = whatihavedone;
+}
+
+void showoff_progress(Progress *progress)
+{
+  z_clear_line();
+  int perentage = progress->whatihavedone * 100 / progress->whatineedtodo;
+
+  if (perentage == 100) {
+    printf("\rDone. took ");
+    z_print_elapsed_seconds(progress->big_bang);
+    return;
+  }
+
+  // avoid printing when progress hasn't improved
+  if (progress->lastprogresspersantage == perentage) {
+    return;
+  }
+
+  printf("\r%d%%", perentage);
+  fflush(stdout);
+  progress->lastprogresspersantage = perentage;
+}
+
+static inline int get_gradient_at_position(const Horizontal_Seam_Carving_State *state, int x, int y)
 {
   const int SOBEL_X[3][3] = {
     { -1,  0,  1 },
@@ -133,10 +178,10 @@ static inline int pixel_gradient_at(const Image *img, int x, int y)
   int gy = 0;
 
 	for (int cy = -1; cy <= 1; cy++) {
-		if (in_range(0, y + cy, img->h - 1)) {
+		if (in_range(0, y + cy, state->height - 1)) {
 			for (int cx = -1; cx <= 1; cx++) {
-				if (in_range(0, x + cx, img->w - 1)) {
-					int luminance = MAT_AT(&img->luminance, x + cx, y + cy);
+				if (in_range(0, x + cx, state->width - 1)) {
+					int luminance = MAT_AT(&state->luminance, x + cx, y + cy);
 
 					gx += SOBEL_X[cy + 1][cx + 1] * luminance;
 					gy += SOBEL_Y[cy + 1][cx + 1] * luminance;
@@ -148,45 +193,45 @@ static inline int pixel_gradient_at(const Image *img, int x, int y)
 	return gx * gx + gy * gy;
 }
 
-void calculate_gradient(Image *img)
+void calculate_gradient(Horizontal_Seam_Carving_State *state)
 {
-	for (int y = 0; y < img->h; y++) {
-		for (int x = 0; x < img->w; x++) {
-      MAT_AT(&img->gradient, x, y) = pixel_gradient_at(img, x, y);
+	for (int y = 0; y < state->height; y++) {
+		for (int x = 0; x < state->width; x++) {
+      MAT_AT(&state->gradient, x, y) = get_gradient_at_position(state, x, y);
 		}
 	}
 }
 
-void calculate_gradient_near_curve(Image *img, Seam_Point *curve)
+void calculate_gradient_around_removed_seam(Horizontal_Seam_Carving_State *img, Seam_Point *seam)
 {
   int *gradient = img->gradient.ptr;
   int gradient_x = img->gradient.x;
 
-	for (int y = 0; y < img->h; y++) {
-		int x = curve[y].relative_x;
+	for (int y = 0; y < img->height; y++) {
+		int x = seam[y].relative_x;
     int *row = gradient + (y * gradient_x);
 
-    row[y + x] = pixel_gradient_at(img, x, y);
+    row[y + x] = get_gradient_at_position(img, x, y);
 
 		if (x - 1 >= 0) {
-      row[x - 1] = pixel_gradient_at(img, x - 1, y);
+      row[x - 1] = get_gradient_at_position(img, x - 1, y);
     }
 
-		if (x + 1 < img->w) {
-      row[x + 1] = pixel_gradient_at(img, x + 1, y);
+		if (x + 1 < img->width) {
+      row[x + 1] = get_gradient_at_position(img, x + 1, y);
     }
 	}
 }
 
-void calculate_vertical_gradient_sum(Image *img)
+void calculate_vertical_gradient_sum(Horizontal_Seam_Carving_State *img)
 {
-    int w = img->w;
+    int w = img->width;
     int *gradient     = img->gradient.ptr;
     int *gradient_sum = img->gradient_sum.ptr;
     int gradient_x     = img->gradient.x;
     int gradient_sum_x = img->gradient_sum.x;
 
-    for (int y = img->h - 2; y >= 0; y--) {
+    for (int y = img->height - 2; y >= 0; y--) {
 
         int row_gradient     = y * gradient_x;
         int row_gradient_sum      = y * gradient_sum_x;
@@ -217,13 +262,12 @@ void calculate_vertical_gradient_sum(Image *img)
     }
 }
 
-
-int get_next_x_in_curve(const Image *img, int x, int y)
+int get_next_x_in_seam(const Horizontal_Seam_Carving_State *img, int x, int y)
 {
 	int min_x = x;
 	int min_gradient = MAT_AT(&img->gradient_sum, x, y);
 
-	for (int x0 = max(0, x - 1); x0 < min(x + 2, img->w); x0++) {
+	for (int x0 = max(0, x - 1); x0 < min(x + 2, img->width); x0++) {
     if (MAT_AT(&img->gradient_sum, x0, y) < min_gradient) {
 			min_gradient = MAT_AT(&img->gradient_sum, x0, y);
 			min_x = x0;
@@ -233,129 +277,120 @@ int get_next_x_in_curve(const Image *img, int x, int y)
 	return min_x;
 }
 
-Seam_Point *find_min_vertical_curve(const Image *img)
+Seam_Point *find_min_energy_seam(const Horizontal_Seam_Carving_State *img)
 {
-	Seam_Point *curve = malloc(sizeof(Seam_Point) * img->h);
+	Seam_Point *seam = malloc(sizeof(Seam_Point) * img->height);
 
 	int min_x = 0;
 	int min_grad = MAT_AT(&img->gradient_sum, 0, 0);
 
 	// find first min x
-	for (int x = 1; x < img->w; x++) {
+	for (int x = 1; x < img->width; x++) {
 		if (MAT_AT(&img->gradient_sum, x, 0) < min_grad) {
       min_grad = MAT_AT(&img->gradient_sum, x, 0);
 			min_x = x;
 		}
 	}
 
-	curve[0].relative_x = min_x;
+	seam[0].relative_x = min_x;
 
-	for (int y = 1; y < img->h; y++) {
-		curve[y].relative_x = get_next_x_in_curve(img, curve[y - 1].relative_x, y - 1);
+	for (int y = 1; y < img->height; y++) {
+		seam[y].relative_x = get_next_x_in_seam(img, seam[y - 1].relative_x, y - 1);
 	}
 
-	for (int y = 0; y < img->h; y++) {
-		curve[y].absulote_x = MAT_AT(&img->positions, curve[y].relative_x, y);
+	for (int y = 0; y < img->height; y++) {
+		seam[y].absulote_x = MAT_AT(&img->positions, seam[y].relative_x, y);
 	}
 
-	return curve;
+	return seam;
 }
 
-void remove_vertical_curve_from_image(Image *img, Seam_Point *curve)
+void remove_vertical_seam(Horizontal_Seam_Carving_State *img, Seam_Point *seam)
 {
-	for (int i = 0; i < img->h; i++) {
-		int x_to_remove = curve[i].relative_x;
+	for (int i = 0; i < img->height; i++) {
+		int x_to_remove = seam[i].relative_x;
     unsigned int *row_start = &MAT_AT(&img->positions, x_to_remove, i);
-    memmove(row_start, row_start + 1, sizeof(unsigned int) * (img->w - x_to_remove - 1));
+    memmove(row_start, row_start + 1, sizeof(unsigned int) * (img->width - x_to_remove - 1));
 	}
 
-	for (int i = 0; i < img->h; i++) {
-		int x_to_remove = curve[i].relative_x;
+	for (int i = 0; i < img->height; i++) {
+		int x_to_remove = seam[i].relative_x;
     unsigned char *row_start = &MAT_AT(&img->luminance, x_to_remove, i);
-    memmove(row_start, row_start + 1, sizeof(unsigned char) * (img->w - x_to_remove - 1));
+    memmove(row_start, row_start + 1, sizeof(unsigned char) * (img->width - x_to_remove - 1));
 	}
 
-	for (int i = 0; i < img->h; i++) {
-		int x_to_remove = curve[i].relative_x;
+	for (int i = 0; i < img->height; i++) {
+		int x_to_remove = seam[i].relative_x;
     int *row_start = &MAT_AT(&img->gradient, x_to_remove, i);
-    memmove(row_start, row_start + 1, sizeof(int) * (img->w - x_to_remove - 1));
+    memmove(row_start, row_start + 1, sizeof(int) * (img->width - x_to_remove - 1));
 	}
 }
 
-Image format_image(const SDL_Surface *img)
+Horizontal_Seam_Carving_State create_horizontal_seam_carving_state(const char *pixels, int width, int height, int pitch)
 {
-	Image formatted_img = {
-    .positions = MAT_NEW(X_Pos_Mat, unsigned int, img->w, img->h),
-    .luminance = MAT_NEW(Luminance_Mat, unsigned char, img->w, img->h),
-    .gradient = MAT_NEW(Gradient_Mat, int, img->w, img->h),
-    .gradient_sum = MAT_NEW(Gradient_Mat, int, img->w, img->h),
-		.w = img->w,
-		.h = img->h,
+	Horizontal_Seam_Carving_State state = {
+		.width = width,
+		.height = height,
+    .positions = MAT_NEW(X_Pos_Mat, unsigned int, width, height),
+    .luminance = MAT_NEW(Luminance_Mat, unsigned char, width, height),
+    .gradient = MAT_NEW(Gradient_Mat, int, width, height),
+    .gradient_sum = MAT_NEW(Gradient_Mat, int, width, height),
 	};
 
-  const char *pixels = img->pixels;
+  const int BYTES_PER_PIXEL = 3;
 
-	for (int y = 0; y < img->h; y++) {
-		for (int x = 0; x < img->w; x++) {
-      unsigned char r = pixels[y * img->pitch + (x * img->format->BytesPerPixel)];
-      unsigned char g = pixels[y * img->pitch + (x * img->format->BytesPerPixel) + 1];
-      unsigned char b = pixels[y * img->pitch + (x * img->format->BytesPerPixel) + 2];
+	for (int y = 0; y < height; y++) {
+		for (int x = 0; x < width; x++) {
+      unsigned char r = pixels[y * pitch + x * BYTES_PER_PIXEL];
+      unsigned char g = pixels[y * pitch + x * BYTES_PER_PIXEL + 1];
+      unsigned char b = pixels[y * pitch + x * BYTES_PER_PIXEL + 2];
 
-      MAT_AT(&formatted_img.luminance, x, y) = rgb_to_luminance(r, g, b);
-      MAT_AT(&formatted_img.positions, x, y) = x;
+      MAT_AT(&state.luminance, x, y) = rgb_to_luminance(r, g, b);
+      MAT_AT(&state.positions, x, y) = x;
 		}
 	}
 
-	return formatted_img;
+	return state;
 }
 
-void free_image(Image *img)
+void free_state(Horizontal_Seam_Carving_State *state)
 {
-  free(img->positions.ptr);
-  free(img->luminance.ptr);
-  free(img->gradient.ptr);
-  free(img->gradient_sum.ptr);
+  free(state->positions.ptr);
+  free(state->luminance.ptr);
+  free(state->gradient.ptr);
+  free(state->gradient_sum.ptr);
 }
 
 Seam_Point **compile_vertical_curves(const SDL_Surface *sdl_image)
 {
-	Image img = format_image(sdl_image);
+	Horizontal_Seam_Carving_State state = create_horizontal_seam_carving_state(sdl_image->pixels, sdl_image->w, sdl_image->h, sdl_image->pitch);
+	Seam_Point **seams = malloc(sizeof(Seam_Point *) * state.width);
 
-	Seam_Point **curves = malloc(sizeof(Seam_Point *) * img.w);
-	int w = img.w;
+  Progress progress = create_progress(state.width - 1);
+  showoff_progress(&progress);
+	calculate_gradient(&state);
 
-	calculate_gradient(&img);
-
-	int last_per = 0;
-
-	printf("completed 0%%");
-
-	for (int x = 0; x < w; x++) {
-		calculate_vertical_gradient_sum(&img);
-		curves[x] = find_min_vertical_curve(&img);
-		remove_vertical_curve_from_image(&img, curves[x]);
-		img.w--;
-		calculate_gradient_near_curve(&img, curves[x]);
-
-		int new_per = (int)((double)x / w * 100);
-		if (new_per > last_per) {
-			last_per = new_per;
-			z_clear_line();
-			printf("\rcompleted %3d%%\r", last_per);
-			fflush(stdout);
-		}
+	int width = state.width;
+	for (int x = 0; x < width; x++) {
+		calculate_vertical_gradient_sum(&state);
+		seams[x] = find_min_energy_seam(&state);
+		remove_vertical_seam(&state, seams[x]);
+		state.width--;
+		calculate_gradient_around_removed_seam(&state, seams[x]);
+    showoff_progress(&progress);
+    set_progress(&progress, x);
 	}
 
-	printf("\rcompleted 100%%\n");
-	free_image(&img);
+  showoff_progress(&progress);
+	free_state(&state);
 
-	return curves;
+	return seams;
 }
 
 
-ResizableImage create_resizable_image(const char *original_pixels, int w, int h, int pitch, int bytes_per_pixel, const Seam_Point **curves)
+Horizontal_Dynamic_Image create_resizable_image(const char *original_pixels, int w, int h, int pitch, int bytes_per_pixel, const Seam_Point **curves)
 {
-	ResizableImage img = {
+	Horizontal_Dynamic_Image img = {
 		.bytes_per_pixel = bytes_per_pixel,
 		.original_w = w,
 		.w = w,
@@ -371,7 +406,7 @@ ResizableImage create_resizable_image(const char *original_pixels, int w, int h,
 	return img;
 }
 
-void resize_img(ResizableImage *img, int desired_width)
+void resize_img(Horizontal_Dynamic_Image *img, int desired_width)
 {
   memset(img->buffer.ptr, 0, img->buffer.x * img->buffer.y * sizeof(bool));
 
@@ -399,18 +434,9 @@ void resize_img(ResizableImage *img, int desired_width)
 	}
 }
 
-void window_loop(SDL_Window *window, SDL_Renderer *renderer, SDL_Texture *texture, SDL_Surface *img, Seam_Point **curves)
+void window_loop(SDL_Window *window, SDL_Renderer *renderer, SDL_Texture *texture, SDL_Surface *img, Horizontal_Dynamic_Image *resizabale_img)
 {
-	ResizableImage resizabale_img = create_resizable_image(
-			img->pixels,
-			img->w,
-			img->h,
-			img->pitch,
-			img->format->BytesPerPixel,
-			(const Seam_Point **)curves
-	);
-
-	SDL_UpdateTexture(texture, NULL, resizabale_img.pixels, resizabale_img.pitch);
+	SDL_UpdateTexture(texture, NULL, resizabale_img->pixels, resizabale_img->pitch);
 
 	while (true) {
 
@@ -441,13 +467,13 @@ void window_loop(SDL_Window *window, SDL_Renderer *renderer, SDL_Texture *textur
 				SDL_Rect texture_dimentions = {
 					.x = 0,
 					.y = 0,
-					.w = resizabale_img.original_w * IMG_SCALE,
-					.h = resizabale_img.original_h * IMG_SCALE,
+					.w = resizabale_img->original_w,
+					.h = resizabale_img->original_h,
 				};
 
-				if (window_width < resizabale_img.original_w) {
-					resize_img(&resizabale_img, window_width);
-					SDL_UpdateTexture(texture, NULL, resizabale_img.pixels, resizabale_img.w * resizabale_img.bytes_per_pixel);
+				if (window_width < resizabale_img->original_w) {
+					resize_img(resizabale_img, window_width);
+					SDL_UpdateTexture(texture, NULL, resizabale_img->pixels, resizabale_img->w * resizabale_img->bytes_per_pixel);
 				}
 
 				SDL_RenderCopy(renderer, texture, NULL, &texture_dimentions);
@@ -474,14 +500,12 @@ int main(int argc, char **argv)
 	SDL_Surface *img = IMG_Load(argv[1]);
 
   if (img == NULL) {
-    die("Image not found\n");
+    die("Horizontal_Seam_Carving_State not found\n");
   }
 
 	printf("(x: %d, y: %d, channels: %d, pitch: %d)\n", img->w, img->h, img->format->BytesPerPixel, img->pitch);
 
-	clock_t start = clock();
 	Seam_Point **curves = compile_vertical_curves(img);
-	printf("Compiling took: %f\n", ((double)clock() - start) / CLOCKS_PER_SEC);
 
 
 	SDL_Window *window = SDL_CreateWindow(
@@ -496,7 +520,16 @@ int main(int argc, char **argv)
 
 	SDL_Texture *texture = SDL_CreateTexture(renderer, img->format->format, 0, img->w, img->h);
 
-	window_loop(window, renderer, texture, img, curves);
+	Horizontal_Dynamic_Image resizabale_img = create_resizable_image(
+			img->pixels,
+			img->w,
+			img->h,
+			img->pitch,
+			img->format->BytesPerPixel,
+			(const Seam_Point **)curves
+	);
+
+	window_loop(window, renderer, texture, img, &resizabale_img);
 
 	SDL_DestroyTexture(texture);
 	SDL_FreeSurface(img);
