@@ -22,12 +22,14 @@
 #include <limits.h>
 #include <wchar.h>
 
-#define LIBZATAR_IMPLEMENTATION
-#include "libzatar.h"
-
 #define IMG_SCALE	1
 #define WINDOW_WIDTH	800
 #define WINDOW_HEIGHT	800
+
+#define MAT_NEW(Type, Element_Type, X, Y) ((Type){ .x = X, .y = Y, .ptr = malloc(sizeof(Element_Type) * (X) * (Y)) })
+#define MAT_AT(mat, X, Y) ((mat)->ptr[(Y) * (mat)->x + (X)])
+
+#define z_clear_line() printf("\033[K")
 
 typedef struct {
   bool *ptr;
@@ -65,11 +67,11 @@ typedef struct {
 typedef struct {
 	unsigned int relative_x;
 	unsigned int absulote_x;
-} CurvePoint;
+} Seam_Point;
 
 typedef struct {
 	const char *original_pixels;
-	const CurvePoint **curves;
+	const Seam_Point **curves;
 	int original_pitch;
 	int original_w;
 	int original_h;
@@ -81,35 +83,59 @@ typedef struct {
 	Bool_Mat buffer;
 } ResizableImage;
 
-const int SOBEL_X[3][3] = {
-	{ -1,  0,  1 },
-	{ -2,  0,  2 },
-	{ -1,  0,  1 },
-};
-
-const int SOBEL_Y[3][3] = {
-	{ -1, -2, -1 },
-	{  0,  0,  0 },
-	{  1,  2,  1 },
-};
-
-#define MAT_NEW(Type, Element_Type, X, Y) ((Type){ .x = X, .y = Y, .ptr = malloc(sizeof(Element_Type) * (X) * (Y)) })
-#define MAT_AT(mat, X, Y) ((mat)->ptr[(Y) * (mat)->x + (X)])
+static inline bool in_range(int min, int val, int max)
+{
+	return min <= val && val <= max;
+}
 
 static inline unsigned char rgb_to_luminance(unsigned char r, unsigned char g, unsigned char b)
 {
 	return 0.299 * r + 0.587 * g + 0.114 * b;
 }
 
+void *memdup(const void *mem, const size_t size)
+{
+	void *newMem = malloc(size);
+	memcpy(newMem, mem, size);
+	return newMem;
+}
+
+static inline int max(int a, int b)
+{
+	return a > b ? a : b;
+}
+
+static inline int min(int a, int b)
+{
+	return a > b ? b : a;
+}
+
+static inline int min3(int a, int b, int c)
+{
+	return min(a, min(b, c));
+}
+
 static inline int pixel_gradient_at(const Image *img, int x, int y)
 {
-	int gx = 0;
-	int gy = 0;
+  const int SOBEL_X[3][3] = {
+    { -1,  0,  1 },
+    { -2,  0,  2 },
+    { -1,  0,  1 },
+  };
+
+  const int SOBEL_Y[3][3] = {
+    { -1, -2, -1 },
+    {  0,  0,  0 },
+    {  1,  2,  1 },
+  };
+
+  int gx = 0;
+  int gy = 0;
 
 	for (int cy = -1; cy <= 1; cy++) {
-		if (z_in_range(0, y + cy, img->h - 1)) {
+		if (in_range(0, y + cy, img->h - 1)) {
 			for (int cx = -1; cx <= 1; cx++) {
-				if (z_in_range(0, x + cx, img->w - 1)) {
+				if (in_range(0, x + cx, img->w - 1)) {
 					int luminance = MAT_AT(&img->luminance, x + cx, y + cy);
 
 					gx += SOBEL_X[cy + 1][cx + 1] * luminance;
@@ -131,7 +157,7 @@ void calculate_gradient(Image *img)
 	}
 }
 
-void calculate_gradient_near_curve(Image *img, CurvePoint *curve)
+void calculate_gradient_near_curve(Image *img, Seam_Point *curve)
 {
   int *gradient = img->gradient.ptr;
   int gradient_x = img->gradient.x;
@@ -167,14 +193,14 @@ void calculate_vertical_gradient_sum(Image *img)
         int row_gradient_sum_next = (y + 1) * gradient_sum_x;
 
         // left
-        gradient_sum[row_gradient_sum + 0] = gradient[row_gradient + 0] + z_min(
+        gradient_sum[row_gradient_sum + 0] = gradient[row_gradient + 0] + min(
                 gradient_sum[row_gradient_sum_next + 0],
                 gradient_sum[row_gradient_sum_next + 1]
         );
 
         // middle
         for (int x = 1; x < w - 1; x++) {
-            gradient_sum[row_gradient_sum + x] = gradient[row_gradient + x] + z_min3(
+            gradient_sum[row_gradient_sum + x] = gradient[row_gradient + x] + min3(
                     gradient_sum[row_gradient_sum_next + x - 1],
                     gradient_sum[row_gradient_sum_next + x],
                     gradient_sum[row_gradient_sum_next + x + 1]
@@ -184,7 +210,7 @@ void calculate_vertical_gradient_sum(Image *img)
         // right
         gradient_sum[row_gradient_sum + w - 1] =
             gradient[row_gradient + w - 1] +
-            z_min(
+            min(
                 gradient_sum[row_gradient_sum_next + w - 1],
                 gradient_sum[row_gradient_sum_next + w - 2]
             );
@@ -197,7 +223,7 @@ int get_next_x_in_curve(const Image *img, int x, int y)
 	int min_x = x;
 	int min_gradient = MAT_AT(&img->gradient_sum, x, y);
 
-	for (int x0 = z_max(0, x - 1); x0 < z_min(x + 2, img->w); x0++) {
+	for (int x0 = max(0, x - 1); x0 < min(x + 2, img->w); x0++) {
     if (MAT_AT(&img->gradient_sum, x0, y) < min_gradient) {
 			min_gradient = MAT_AT(&img->gradient_sum, x0, y);
 			min_x = x0;
@@ -207,9 +233,9 @@ int get_next_x_in_curve(const Image *img, int x, int y)
 	return min_x;
 }
 
-CurvePoint *find_min_vertical_curve(const Image *img)
+Seam_Point *find_min_vertical_curve(const Image *img)
 {
-	CurvePoint *curve = malloc(sizeof(CurvePoint) * img->h);
+	Seam_Point *curve = malloc(sizeof(Seam_Point) * img->h);
 
 	int min_x = 0;
 	int min_grad = MAT_AT(&img->gradient_sum, 0, 0);
@@ -235,7 +261,7 @@ CurvePoint *find_min_vertical_curve(const Image *img)
 	return curve;
 }
 
-void remove_vertical_curve_from_image(Image *img, CurvePoint *curve)
+void remove_vertical_curve_from_image(Image *img, Seam_Point *curve)
 {
 	for (int i = 0; i < img->h; i++) {
 		int x_to_remove = curve[i].relative_x;
@@ -291,11 +317,11 @@ void free_image(Image *img)
   free(img->gradient_sum.ptr);
 }
 
-CurvePoint **compile_vertical_curves(const SDL_Surface *sdl_image)
+Seam_Point **compile_vertical_curves(const SDL_Surface *sdl_image)
 {
 	Image img = format_image(sdl_image);
 
-	CurvePoint **curves = malloc(sizeof(CurvePoint *) * img.w);
+	Seam_Point **curves = malloc(sizeof(Seam_Point *) * img.w);
 	int w = img.w;
 
 	calculate_gradient(&img);
@@ -327,7 +353,7 @@ CurvePoint **compile_vertical_curves(const SDL_Surface *sdl_image)
 }
 
 
-ResizableImage create_resizable_image(const char *original_pixels, int w, int h, int pitch, int bytes_per_pixel, const CurvePoint **curves)
+ResizableImage create_resizable_image(const char *original_pixels, int w, int h, int pitch, int bytes_per_pixel, const Seam_Point **curves)
 {
 	ResizableImage img = {
 		.bytes_per_pixel = bytes_per_pixel,
@@ -336,7 +362,7 @@ ResizableImage create_resizable_image(const char *original_pixels, int w, int h,
 		.original_h = h,
 		.h = h,
 		.original_pitch = pitch, .pitch = pitch,
-		.pixels = z_memdup(original_pixels, h * pitch),
+		.pixels = memdup(original_pixels, h * pitch),
 		.original_pixels = original_pixels,
 		.curves = curves,
 		.buffer = MAT_NEW(Bool_Mat, bool, w, h),
@@ -373,7 +399,7 @@ void resize_img(ResizableImage *img, int desired_width)
 	}
 }
 
-void window_loop(SDL_Window *window, SDL_Renderer *renderer, SDL_Texture *texture, SDL_Surface *img, CurvePoint **curves)
+void window_loop(SDL_Window *window, SDL_Renderer *renderer, SDL_Texture *texture, SDL_Surface *img, Seam_Point **curves)
 {
 	ResizableImage resizabale_img = create_resizable_image(
 			img->pixels,
@@ -381,12 +407,12 @@ void window_loop(SDL_Window *window, SDL_Renderer *renderer, SDL_Texture *textur
 			img->h,
 			img->pitch,
 			img->format->BytesPerPixel,
-			(const CurvePoint **)curves
+			(const Seam_Point **)curves
 	);
 
 	SDL_UpdateTexture(texture, NULL, resizabale_img.pixels, resizabale_img.pitch);
 
-	for (;;) {
+	while (true) {
 
 		SDL_Event event;
 		SDL_WaitEvent(&event);
@@ -441,21 +467,25 @@ int main(int argc, char **argv)
 {
 	SDL_Init(0);
 
-	if (argc != 2) die("Please provide an image path\n");
+	if (argc != 2) {
+    die("Please provide an image path\n");
+  }
 
 	SDL_Surface *img = IMG_Load(argv[1]);
 
-	if (!img) die("Image not found\n");
+  if (img == NULL) {
+    die("Image not found\n");
+  }
 
 	printf("(x: %d, y: %d, channels: %d, pitch: %d)\n", img->w, img->h, img->format->BytesPerPixel, img->pitch);
 
 	clock_t start = clock();
-	CurvePoint **curves = compile_vertical_curves(img);
+	Seam_Point **curves = compile_vertical_curves(img);
 	printf("Compiling took: %f\n", ((double)clock() - start) / CLOCKS_PER_SEC);
 
 
 	SDL_Window *window = SDL_CreateWindow(
-			"Image Evolution",
+			"Seam Carving",
 			SDL_WINDOWPOS_CENTERED,
 			SDL_WINDOWPOS_CENTERED,
 			WINDOW_WIDTH, WINDOW_HEIGHT,

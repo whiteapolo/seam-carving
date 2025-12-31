@@ -1,5 +1,6 @@
 all:
-	cc main.c -o exe -O3 -lm -lSDL2 -lSDL2_image -Wall
+	make -C ./zlib
+	cc main.c ./zlib/libzatar.a -o exe -O3 -lm -lSDL2 -lSDL2_image -Wall
 
 profile:
 	gcc main.c -O3 -o exe -lm -lSDL2 -lSDL2_image -pg
