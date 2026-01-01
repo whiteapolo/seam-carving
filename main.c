@@ -21,22 +21,13 @@
 #include <stdint.h>
 #include <limits.h>
 #include <wchar.h>
-#include "zlib/include/z_time.h"
+#include "logic.c"
 
 #define WINDOW_WIDTH	800
 #define WINDOW_HEIGHT	800
 
 #define MAT_NEW(Type, Element_Type, X, Y) ((Type){ .x = X, .y = Y, .ptr = malloc(sizeof(Element_Type) * (X) * (Y)) })
 #define MAT_AT(mat, X, Y) ((mat)->ptr[(Y) * (mat)->x + (X)])
-
-#define z_clear_line() printf("\033[K")
-
-typedef struct {
-  int whatineedtodo;
-  int whatihavedone;
-  int lastprogresspersantage;
-  Z_Clock big_bang;
-} Progress;
 
 typedef struct {
   bool *ptr;
@@ -78,7 +69,7 @@ typedef struct {
 
 typedef struct {
 	const char *original_pixels;
-	const Seam_Point **curves;
+	Seam_Point **curves;
 	int original_pitch;
 	int original_w;
 	int original_h;
@@ -86,79 +77,8 @@ typedef struct {
 	int pitch;
 	int w;
 	int h;
-	int bytes_per_pixel;
 	Bool_Mat buffer;
 } Horizontal_Dynamic_Image;
-
-static inline bool in_range(int min, int val, int max)
-{
-	return min <= val && val <= max;
-}
-
-static inline unsigned char rgb_to_luminance(unsigned char r, unsigned char g, unsigned char b)
-{
-	return 0.299 * r + 0.587 * g + 0.114 * b;
-}
-
-static inline int max(int a, int b)
-{
-	return a > b ? a : b;
-}
-
-static inline int min(int a, int b)
-{
-	return a > b ? b : a;
-}
-
-static inline int min3(int a, int b, int c)
-{
-	return min(a, min(b, c));
-}
-
-void *memdup(const void *mem, const size_t size)
-{
-	void *newMem = malloc(size);
-	memcpy(newMem, mem, size);
-	return newMem;
-}
-
-Progress create_progress(int whatineedtodo)
-{
-  Progress progress = {
-    .whatineedtodo = whatineedtodo,
-    .whatihavedone = 0,
-    .lastprogresspersantage = -1,
-    .big_bang = z_get_clock(),
-  };
-
-  return progress;
-}
-
-void set_progress(Progress *progress, int whatihavedone)
-{
-  progress->whatihavedone = whatihavedone;
-}
-
-void showoff_progress(Progress *progress)
-{
-  z_clear_line();
-  int perentage = progress->whatihavedone * 100 / progress->whatineedtodo;
-
-  if (perentage == 100) {
-    printf("\rDone. took ");
-    z_print_elapsed_seconds(progress->big_bang);
-    return;
-  }
-
-  // avoid printing when progress hasn't improved
-  if (progress->lastprogresspersantage == perentage) {
-    return;
-  }
-
-  printf("\r%d%%", perentage);
-  fflush(stdout);
-  progress->lastprogresspersantage = perentage;
-}
 
 static inline int get_gradient_at_position(const Horizontal_Seam_Carving_State *state, int x, int y)
 {
@@ -361,16 +281,15 @@ void free_state(Horizontal_Seam_Carving_State *state)
   free(state->gradient_sum.ptr);
 }
 
-Seam_Point **compile_vertical_curves(const SDL_Surface *sdl_image)
+Seam_Point **compile_vertical_curves(const char *pixels, int width, int height, int pitch)
 {
-	Horizontal_Seam_Carving_State state = create_horizontal_seam_carving_state(sdl_image->pixels, sdl_image->w, sdl_image->h, sdl_image->pitch);
+	Horizontal_Seam_Carving_State state = create_horizontal_seam_carving_state(pixels, width, height, pitch);
 	Seam_Point **seams = malloc(sizeof(Seam_Point *) * state.width);
 
   Progress progress = create_progress(state.width - 1);
   showoff_progress(&progress);
 	calculate_gradient(&state);
 
-	int width = state.width;
 	for (int x = 0; x < width; x++) {
 		calculate_vertical_gradient_sum(&state);
 		seams[x] = find_min_energy_seam(&state);
@@ -388,10 +307,9 @@ Seam_Point **compile_vertical_curves(const SDL_Surface *sdl_image)
 }
 
 
-Horizontal_Dynamic_Image create_resizable_image(const char *original_pixels, int w, int h, int pitch, int bytes_per_pixel, const Seam_Point **curves)
+Horizontal_Dynamic_Image create_resizable_image(const char *original_pixels, int w, int h, int pitch)
 {
 	Horizontal_Dynamic_Image img = {
-		.bytes_per_pixel = bytes_per_pixel,
 		.original_w = w,
 		.w = w,
 		.original_h = h,
@@ -399,7 +317,7 @@ Horizontal_Dynamic_Image create_resizable_image(const char *original_pixels, int
 		.original_pitch = pitch, .pitch = pitch,
 		.pixels = memdup(original_pixels, h * pitch),
 		.original_pixels = original_pixels,
-		.curves = curves,
+		.curves = compile_vertical_curves(original_pixels, w, h, pitch),
 		.buffer = MAT_NEW(Bool_Mat, bool, w, h),
 	};
 
@@ -416,7 +334,9 @@ void resize_img(Horizontal_Dynamic_Image *img, int desired_width)
 		}
 	}
 
-	img->pitch = desired_width * img->bytes_per_pixel;
+  const int BYTES_PER_PIXEL = 3;
+
+	img->pitch = desired_width * BYTES_PER_PIXEL;
 	img->w = desired_width;
 
 	for (int y = 0; y < img->original_h; y++) {
@@ -424,9 +344,9 @@ void resize_img(Horizontal_Dynamic_Image *img, int desired_width)
 		for (int x = 0; x < img->original_w; x++) {
       if (!MAT_AT(&img->buffer, x, y)) {
 				memcpy(
-					&img->pixels[y * img->pitch + x0 * img->bytes_per_pixel],
-					&img->original_pixels[y * img->original_pitch + x * img->bytes_per_pixel],
-					img->bytes_per_pixel
+					&img->pixels[y * img->pitch + x0 * BYTES_PER_PIXEL],
+					&img->original_pixels[y * img->original_pitch + x * BYTES_PER_PIXEL],
+					BYTES_PER_PIXEL
 				);
 				x0++;
 			}
@@ -473,7 +393,7 @@ void window_loop(SDL_Window *window, SDL_Renderer *renderer, SDL_Texture *textur
 
 				if (window_width < resizabale_img->original_w) {
 					resize_img(resizabale_img, window_width);
-					SDL_UpdateTexture(texture, NULL, resizabale_img->pixels, resizabale_img->w * resizabale_img->bytes_per_pixel);
+					SDL_UpdateTexture(texture, NULL, resizabale_img->pixels, resizabale_img->w * 3);
 				}
 
 				SDL_RenderCopy(renderer, texture, NULL, &texture_dimentions);
@@ -505,8 +425,12 @@ int main(int argc, char **argv)
 
 	printf("(x: %d, y: %d, channels: %d, pitch: %d)\n", img->w, img->h, img->format->BytesPerPixel, img->pitch);
 
-	Seam_Point **curves = compile_vertical_curves(img);
-
+	Horizontal_Dynamic_Image resizabale_img = create_resizable_image(
+			img->pixels,
+			img->w,
+			img->h,
+			img->pitch
+	);
 
 	SDL_Window *window = SDL_CreateWindow(
 			"Seam Carving",
@@ -519,15 +443,6 @@ int main(int argc, char **argv)
   SDL_Renderer *renderer = SDL_CreateRenderer(window, -1, SDL_RENDERER_ACCELERATED);
 
 	SDL_Texture *texture = SDL_CreateTexture(renderer, img->format->format, 0, img->w, img->h);
-
-	Horizontal_Dynamic_Image resizabale_img = create_resizable_image(
-			img->pixels,
-			img->w,
-			img->h,
-			img->pitch,
-			img->format->BytesPerPixel,
-			(const Seam_Point **)curves
-	);
 
 	window_loop(window, renderer, texture, img, &resizabale_img);
 
