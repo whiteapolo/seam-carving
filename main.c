@@ -22,7 +22,7 @@
 #include <limits.h>
 #include <wchar.h>
 #include "libzatar/include/min-max.h"
-#include "logic.c"
+#include "progress.c"
 #include "libzatar/include/error.h"
 
 #define WINDOW_WIDTH	800
@@ -81,6 +81,23 @@ typedef struct {
     int h;
     Bool_Mat buffer;
 } Horizontal_Dynamic_Image;
+
+static inline bool in_range(int min, int val, int max)
+{
+    return min <= val && val <= max;
+}
+
+static inline unsigned char rgb_to_luminance(unsigned char r, unsigned char g, unsigned char b)
+{
+    return 0.299 * r + 0.587 * g + 0.114 * b;
+}
+
+void *memdup(const void *mem, const size_t size)
+{
+    void *newMem = malloc(size);
+    memcpy(newMem, mem, size);
+    return newMem;
+}
 
 static inline int get_gradient_at_position(const Horizontal_Seam_Carving_State *state, int x, int y)
 {
@@ -175,12 +192,10 @@ void calculate_vertical_gradient_sum(Horizontal_Seam_Carving_State *img)
         }
 
         // right
-        gradient_sum[row_gradient_sum + w - 1] =
-            gradient[row_gradient + w - 1] +
-            Z_MIN(
+        gradient_sum[row_gradient_sum + w - 1] = gradient[row_gradient + w - 1] + Z_MIN(
                 gradient_sum[row_gradient_sum_next + w - 1],
                 gradient_sum[row_gradient_sum_next + w - 2]
-            );
+        );
     }
 }
 
@@ -307,7 +322,6 @@ Seam_Point **compile_vertical_curves(const char *pixels, int width, int height, 
 
     return seams;
 }
-
 
 Horizontal_Dynamic_Image create_resizable_image(const char *original_pixels, int w, int h, int pitch)
 {
