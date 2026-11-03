@@ -1,12 +1,5 @@
 all:
-	make -C ./zlib
-	cc main.c ./zlib/libzatar.a -o exe -O3 -lm -lSDL2 -lSDL2_image -Wall
-
-profile:
-	gcc main.c -O3 -o exe -lm -lSDL2 -lSDL2_image -pg
-	./exe "./images/surfer.jpg"
-	gprof exe gmon.out > anal.txt
-	rm -rf gmon.out
+	cc main.c libzatar/libzatar.a -o exe -O3 -lm -lSDL2 -lSDL2_image -Wall -Wextra
 
 clean:
 	rm -rf exe
