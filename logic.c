@@ -11,9 +11,6 @@ typedef struct {
 
 static inline bool in_range(int min, int val, int max);
 static inline unsigned char rgb_to_luminance(unsigned char r, unsigned char g, unsigned char b);
-static inline int max(int a, int b);
-static inline int min(int a, int b);
-static inline int min3(int a, int b, int c);
 void *memdup(const void *mem, const size_t size);
 
 Progress create_progress(int whatineedtodo);
@@ -28,21 +25,6 @@ static inline bool in_range(int min, int val, int max)
 static inline unsigned char rgb_to_luminance(unsigned char r, unsigned char g, unsigned char b)
 {
     return 0.299 * r + 0.587 * g + 0.114 * b;
-}
-
-static inline int max(int a, int b)
-{
-    return a > b ? a : b;
-}
-
-static inline int min(int a, int b)
-{
-    return a > b ? b : a;
-}
-
-static inline int min3(int a, int b, int c)
-{
-    return min(a, min(b, c));
 }
 
 void *memdup(const void *mem, const size_t size)

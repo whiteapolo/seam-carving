@@ -21,6 +21,7 @@
 #include <stdint.h>
 #include <limits.h>
 #include <wchar.h>
+#include "libzatar/include/min-max.h"
 #include "logic.c"
 #include "libzatar/include/error.h"
 
@@ -159,14 +160,14 @@ void calculate_vertical_gradient_sum(Horizontal_Seam_Carving_State *img)
         int row_gradient_sum_next = (y + 1) * gradient_sum_x;
 
         // left
-        gradient_sum[row_gradient_sum + 0] = gradient[row_gradient + 0] + min(
+        gradient_sum[row_gradient_sum + 0] = gradient[row_gradient + 0] + Z_MIN(
             gradient_sum[row_gradient_sum_next + 0],
             gradient_sum[row_gradient_sum_next + 1]
         );
 
         // middle
         for (int x = 1; x < w - 1; x++) {
-            gradient_sum[row_gradient_sum + x] = gradient[row_gradient + x] + min3(
+            gradient_sum[row_gradient_sum + x] = gradient[row_gradient + x] + Z_MIN3(
                 gradient_sum[row_gradient_sum_next + x - 1],
                 gradient_sum[row_gradient_sum_next + x],
                 gradient_sum[row_gradient_sum_next + x + 1]
@@ -176,7 +177,7 @@ void calculate_vertical_gradient_sum(Horizontal_Seam_Carving_State *img)
         // right
         gradient_sum[row_gradient_sum + w - 1] =
             gradient[row_gradient + w - 1] +
-            min(
+            Z_MIN(
                 gradient_sum[row_gradient_sum_next + w - 1],
                 gradient_sum[row_gradient_sum_next + w - 2]
             );
@@ -188,7 +189,7 @@ int get_next_x_in_seam(const Horizontal_Seam_Carving_State *img, int x, int y)
     int min_x = x;
     int min_gradient = MAT_AT(&img->gradient_sum, x, y);
 
-    for (int x0 = max(0, x - 1); x0 < min(x + 2, img->width); x0++) {
+    for (int x0 = Z_MAX(0, x - 1); x0 < Z_MIN(x + 2, img->width); x0++) {
         if (MAT_AT(&img->gradient_sum, x0, y) < min_gradient) {
             min_gradient = MAT_AT(&img->gradient_sum, x0, y);
             min_x = x0;
@@ -358,7 +359,6 @@ void resize_img(Horizontal_Dynamic_Image *img, int desired_width)
 void window_loop(SDL_Window *window,
                  SDL_Renderer *renderer,
                  SDL_Texture *texture,
-                 SDL_Surface *img,
                  Horizontal_Dynamic_Image *resizabale_img)
 {
     SDL_UpdateTexture(texture, NULL, resizabale_img->pixels, resizabale_img->pitch);
@@ -441,7 +441,7 @@ int main(int argc, char **argv)
 
     SDL_Texture *texture = SDL_CreateTexture(renderer, img->format->format, 0, img->w, img->h);
 
-    window_loop(window, renderer, texture, img, &resizabale_img);
+    window_loop(window, renderer, texture, &resizabale_img);
 
     SDL_DestroyTexture(texture);
     SDL_FreeSurface(img);
