@@ -8,6 +8,6 @@
 ## Quick Start
 
 ```console
-$ ./build.sh
-$ ./exe
+$ make
+$ ./seam-carving images/tower.jpg
 ```
